@@ -849,6 +849,19 @@ def _notify_discord(message: str, webhook: str = None):
         print(f"[DISCORD] Failed to send notification: {e}")
 
 
+_ALERT_COOLDOWN = 30 * 60  # 30 minutes
+_alerted_slots: dict = {}  # (date_str, time_str) -> last alert timestamp
+
+
+def _should_alert(date_str: str, time_str: str) -> bool:
+    key = (date_str, time_str)
+    last = _alerted_slots.get(key)
+    if last is None or time.time() - last >= _ALERT_COOLDOWN:
+        _alerted_slots[key] = time.time()
+        return True
+    return False
+
+
 # ── Date filtering ────────────────────────────────────────────────────────────
 
 def _is_before_urgent(date_str: str) -> bool:
@@ -1082,23 +1095,27 @@ def run():
                         _dmsg += f"\U0001f4c5  **{_dtn2.strftime('%B')}**  |  {_dtn2.month}-{_dtn2.day}-{_dtn2.year}\n"
                         _dmsg += "\u23f0  " + "   \u2022   ".join(times) + "\n\n"
                 # Urgent slots → urgent channel; normal slots → normal channel
-                if urgent_slots:
+                # Only alert slots not seen in the last 30 minutes
+                _new_urgent = [(ds, st, et, sid, av) for (ds, st, et, sid, av) in urgent_slots if _should_alert(ds, st)]
+                _new_normal = [(ds, st, et, sid, av) for (ds, st, et, sid, av) in normal_slots if _should_alert(ds, st)]
+
+                if _new_urgent:
                     _umsg = "\U0001f514 **URGENT SLOTS AVAILABLE**\n"
                     _umsg += f"\U0001f4cd **{QVC_CENTER}**\n"
                     _umsg += "\U0001f534 Before: " + URGENT_MEDICAL_DATE + "\n\n"
                     _u_d = {}
-                    for (ds, st, et, sid, av) in urgent_slots:
+                    for (ds, st, et, sid, av) in _new_urgent:
                         _u_d.setdefault(ds, []).append(st.replace(" ", ""))
                     for ds, times in _u_d.items():
                         _udt = datetime.strptime(ds, "%Y-%m-%d")
                         _umsg += f"\U0001f4c5  **{_udt.strftime('%B')}**  |  {_udt.month}-{_udt.day}-{_udt.year}\n"
                         _umsg += "\u23f0  " + "   \u2022   ".join(times) + "\n\n"
                     _notify_discord(_umsg.strip(), webhook=DISCORD_URGENT_WEBHOOK)
-                if normal_slots:
+                if _new_normal:
                     _nmsg = "\U0001f514 **SLOTS AVAILABLE**\n"
                     _nmsg += f"\U0001f4cd **{QVC_CENTER}**\n\n"
                     _n_d = {}
-                    for (ds, st, et, sid, av) in normal_slots:
+                    for (ds, st, et, sid, av) in _new_normal:
                         _n_d.setdefault(ds, []).append(st.replace(" ", ""))
                     for ds, times in _n_d.items():
                         _ndt = datetime.strptime(ds, "%Y-%m-%d")
