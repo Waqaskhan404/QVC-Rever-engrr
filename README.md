@@ -69,3 +69,11 @@ Discord alerts fire automatically when slots are found:
 - **Urgent slots** (before `URGENT_MEDICAL_DATE`) → alert on **Urgent webhook**
 - **Normal slots** → alert on **Normal webhook**
 - If running in urgent mode and normal slots found → alert on normal webhook, **not booked**
+
+
+
+
+
+
+
+(Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned) ; (& c:\Users\waqas\Desktop\QVC_Production\venv312\Scripts\Activate.ps1)  

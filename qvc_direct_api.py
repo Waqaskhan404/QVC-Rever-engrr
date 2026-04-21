@@ -1006,8 +1006,10 @@ def run():
                         _dmsg += "\u23f0  " + "   \u2022   ".join(times) + "\n\n"
                 # Discord alerts — urgent and normal completely separate
                 # Only alert slots not seen in the last 30 minutes
-                _new_urgent = [(ds, st, et, sid, av) for (ds, st, et, sid, av) in urgent_slots if _should_alert(ds)]
-                _new_normal = [(ds, st, et, sid, av) for (ds, st, et, sid, av) in normal_slots if _should_alert(ds)]
+                _urgent_dates = {ds for (ds, *_) in urgent_slots if _should_alert(ds)}
+                _normal_dates = {ds for (ds, *_) in normal_slots if _should_alert(ds)}
+                _new_urgent = [(ds, st, et, sid, av) for (ds, st, et, sid, av) in urgent_slots if ds in _urgent_dates]
+                _new_normal = [(ds, st, et, sid, av) for (ds, st, et, sid, av) in normal_slots if ds in _normal_dates]
 
                 if _new_urgent:
                     _umsg = "\U0001f514 **URGENT RESCHEDULE SLOTS AVAILABLE**\n"
