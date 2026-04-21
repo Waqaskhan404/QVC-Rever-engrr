@@ -1102,7 +1102,7 @@ def run():
                 _new_normal = [(ds, st, et, sid, av) for (ds, st, et, sid, av) in normal_slots if ds in _normal_dates]
 
                 if _new_urgent:
-                    _umsg = "\U0001f514 **URGENT SLOTS AVAILABLE**\n"
+                    _umsg = "@everyone\n\U0001f514 **URGENT SLOTS AVAILABLE**\n"
                     _umsg += f"\U0001f4cd **{QVC_CENTER}**\n"
                     _umsg += "\U0001f534 Before: " + URGENT_MEDICAL_DATE + "\n\n"
                     _u_d = {}
@@ -1114,7 +1114,7 @@ def run():
                         _umsg += "\u23f0  " + "   \u2022   ".join(times) + "\n\n"
                     _notify_discord(_umsg.strip(), webhook=DISCORD_URGENT_WEBHOOK)
                 if _new_normal:
-                    _nmsg = "\U0001f514 **SLOTS AVAILABLE**\n"
+                    _nmsg = "@everyone\n\U0001f514 **SLOTS AVAILABLE**\n"
                     _nmsg += f"\U0001f4cd **{QVC_CENTER}**\n\n"
                     _n_d = {}
                     for (ds, st, et, sid, av) in _new_normal:
