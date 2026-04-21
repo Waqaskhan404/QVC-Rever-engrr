@@ -891,7 +891,7 @@ def _get_year_months() -> list[tuple[int, int]]:
 def run():
     _notify_discord(
         f"\U0001f7e2 **QVC Bot Started**\n"
-        f"\U0001f4cd Center: {QVC_CENTER}\n"
+        f"\U0001f4cd Centers: **Islamabad, Karachi**\n"
         f"\U0001f4c5 Scanning: {', '.join(MONTHS_TO_CHECK)}"
     )
     _load_proxies()
@@ -1024,7 +1024,7 @@ def run():
                             _month_name   = _dt.strftime("%B")
                             _date_display = f"{_dt.month}-{_dt.day}-{_dt.year}"
                             if not slots:
-                                print(f"{_tag}[{center_name}] Month: {_month_name}  Date: {_date_display}  Time Slots: Not Available")
+                                print(f"{_tag}[{center_name}] Month: {_month_name}  Date: {_date_display}  Time Slots: \U0001f534 Not Available")
                                 continue
                             _avail_times = []
                             for slot_entry in slots:
@@ -1042,7 +1042,8 @@ def run():
                                     else:
                                         center_normal.append((date_str, stime, etime, slot_id, avail))
                                     _avail_times.append(stime.replace(" ", ""))
-                            print(f"{_tag}[{center_name}] Month: {_month_name}  Date: {_date_display}  Time Slots: {'  '.join(_avail_times) if _avail_times else 'Not Available'}")
+                            _slot_status = ("\U0001f7e2 Open: " + "  ".join(_avail_times)) if _avail_times else "\U0001f534 Not Available"
+                            print(f"{_tag}\U0001f4cd {center_name}  Month: {_month_name}  Date: {_date_display}  Time Slots: {_slot_status}")
 
                     if got_429:
                         break
@@ -1090,10 +1091,13 @@ def run():
                         for ds, times in _u_d.items():
                             _udt = datetime.strptime(ds, "%Y-%m-%d")
                             _umsg += f"\U0001f4c5  **{_udt.strftime('%B')}**  |  {_udt.month}-{_udt.day}-{_udt.year}\n"
-                            _umsg += "⏰  " + "   •   ".join(times) + "\n\n"
+                            _umsg += f"\U0001f4cd Center: {center_name}\n"
+                            for i in range(0, len(times), 3):
+                                _umsg += "⏰  " + "   ".join(times[i:i+3]) + "\n"
+                            _umsg += "\n"
                         _notify_discord(_umsg.strip(), webhook=DISCORD_URGENT_WEBHOOK)
                     if _new_normal:
-                        _nmsg = "@everyone\n\U0001f514 **SLOTS AVAILABLE**\n"
+                        _nmsg = "@everyone\n\U0001f514 Slots \U0001f7e2 Open\n"
                         _nmsg += f"\U0001f4cd **{center_name}**\n\n"
                         _n_d = {}
                         for (ds, st, et, sid, av) in _new_normal:
@@ -1101,7 +1105,10 @@ def run():
                         for ds, times in _n_d.items():
                             _ndt = datetime.strptime(ds, "%Y-%m-%d")
                             _nmsg += f"\U0001f4c5  **{_ndt.strftime('%B')}**  |  {_ndt.month}-{_ndt.day}-{_ndt.year}\n"
-                            _nmsg += "⏰  " + "   •   ".join(times) + "\n\n"
+                            _nmsg += f"\U0001f4cd Center: {center_name}\n"
+                            for i in range(0, len(times), 3):
+                                _nmsg += "⏰  " + "   ".join(times[i:i+3]) + "\n"
+                            _nmsg += "\n"
                         _notify_discord(_nmsg.strip(), webhook=DISCORD_WEBHOOK)
 
                 if not any_slots_found:
