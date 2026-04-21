@@ -747,8 +747,8 @@ _ALERT_COOLDOWN = 30 * 60  # 30 minutes
 _alerted_slots: dict = {}  # (date_str, time_str) -> last alert timestamp
 
 
-def _should_alert(date_str: str) -> bool:
-    key = date_str
+def _should_alert(center: str, date_str: str) -> bool:
+    key = (center, date_str)
     last = _alerted_slots.get(key)
     if last is None or time.time() - last >= _ALERT_COOLDOWN:
         _alerted_slots[key] = time.time()
@@ -892,155 +892,144 @@ def run():
                 poll_num += 1
                 print(f"\n[POLL {poll_num}] {datetime.now().strftime('%H:%M:%S')}")
 
-                # ── Phase 1: scan all months, collect every date+slot ─────────
-                urgent_slots = []
-                normal_slots = []
-                got_429     = False
+                # ── Phase 1: scan ALL centers + all months ────────────────────
+                all_center_slots = {}
+                got_429 = False
 
-                for (year, month) in year_months:
-                    print(f"[SCAN] {calendar.month_name[month]} {year} → {QVC_CENTER}")
-                    try:
-                        available_dates = get_appointment_dates(
-                            sess, token, year, month,
-                            target_vsc["vscId"], country_id, visa_type_id,
-                            enc_visa, enc_pass, sponsor_type_ids,
-                        )
-                    except SessionExpiredError as e:
-                        print(f"[SESSION] Server session expired ({e}) — restarting full session...")
-                        raise SessionExpiredError(e)
-                    except RateLimitError:
-                        print(f"[429] Rate limited — switching proxy, keeping token...")
-                        proxy_line = _pick_proxy()
-                        sess = _make_session(proxy_line)
-                        got_429 = True
-                        break
+                for center_name, center_vsc in VSC_MAP.items():
+                    center_urgent = []
+                    center_normal = []
+                    for (year, month) in year_months:
+                        print(f"[SCAN] {calendar.month_name[month]} {year} → {center_name}")
+                        try:
+                            available_dates = get_appointment_dates(
+                                sess, token, year, month,
+                                center_vsc["vscId"], country_id, visa_type_id,
+                                enc_visa, enc_pass, sponsor_type_ids,
+                            )
+                        except SessionExpiredError as e:
+                            print(f"[SESSION] Server session expired ({e}) — restarting full session...")
+                            raise SessionExpiredError(e)
+                        except RateLimitError:
+                            print(f"[429] Rate limited — switching proxy, keeping token...")
+                            proxy_line = _pick_proxy()
+                            sess = _make_session(proxy_line)
+                            got_429 = True
+                            break
 
-                    if not available_dates:
-                        print(f"[SCAN] No dates in {calendar.month_name[month]}")
-                        continue
-
-                    for date_str in available_dates:
-                        _is_urgent = _is_before_urgent(date_str)
-                        _label = "URGENT" if (URGENT_MEDICAL_DATE and _is_urgent) else ("NORMAL" if URGENT_MEDICAL_DATE else "")
-                        _tag   = f"[{_label}] " if _label else ""
-                        slots = fetch_slots(
-                            sess, token, date_str,
-                            target_vsc["vscId"], country_id,
-                            VISA_NUMBER, PASSPORT_NUMBER,
-                            enc_visa, enc_pass, sponsor_type_ids,
-                        )
-                        _dt = datetime.strptime(date_str, "%Y-%m-%d")
-                        _month_name   = _dt.strftime("%B")
-                        _date_display = f"{_dt.month}-{_dt.day}-{_dt.year}"
-                        if not slots:
-                            print(f"{_tag}Month      : {_month_name}")
-                            print(f"{_tag}Date       : {_date_display}")
-                            print(f"{_tag}Time Slots : Not Available")
+                        if not available_dates:
+                            print(f"[SCAN] No dates in {calendar.month_name[month]}")
                             continue
-                        _avail_times = []
-                        for slot_entry in slots:
-                            slot_tos = slot_entry.get("slotTO", [])
-                            if not slot_tos:
-                                continue
-                            slot_to = slot_tos[0]
-                            slot_id = slot_to.get("slotQuotaId")
-                            avail   = slot_to.get("available", 0)
-                            stime   = slot_entry.get("slotDisplayStartTime", "")
-                            etime   = slot_entry.get("slotDisplayEndTime", "")
-                            if avail and slot_id:
-                                if _is_urgent:
-                                    urgent_slots.append((date_str, stime, etime, slot_id, avail))
-                                else:
-                                    normal_slots.append((date_str, stime, etime, slot_id, avail))
-                                _avail_times.append(stime.replace(" ", ""))
-                        print(f"{_tag}Month      : {_month_name}")
-                        print(f"{_tag}Date       : {_date_display}")
-                        if _avail_times:
-                            print(f"{_tag}Time Slots : {'  '.join(_avail_times)}")
-                        else:
-                            print(f"{_tag}Time Slots : Not Available")
 
-                # ── Phase 2: print full summary ───────────────────────────────
-                all_slots = urgent_slots + normal_slots
-                if not all_slots:
+                        for date_str in available_dates:
+                            _is_urgent = _is_before_urgent(date_str)
+                            _label = "URGENT" if (URGENT_MEDICAL_DATE and _is_urgent) else ("NORMAL" if URGENT_MEDICAL_DATE else "")
+                            _tag   = f"[{_label}] " if _label else ""
+                            slots = fetch_slots(
+                                sess, token, date_str,
+                                center_vsc["vscId"], country_id,
+                                VISA_NUMBER, PASSPORT_NUMBER,
+                                enc_visa, enc_pass, sponsor_type_ids,
+                            )
+                            _dt = datetime.strptime(date_str, "%Y-%m-%d")
+                            _month_name   = _dt.strftime("%B")
+                            _date_display = f"{_dt.month}-{_dt.day}-{_dt.year}"
+                            if not slots:
+                                print(f"{_tag}[{center_name}] Month: {_month_name}  Date: {_date_display}  Time Slots: Not Available")
+                                continue
+                            _avail_times = []
+                            for slot_entry in slots:
+                                slot_tos = slot_entry.get("slotTO", [])
+                                if not slot_tos:
+                                    continue
+                                slot_to = slot_tos[0]
+                                slot_id = slot_to.get("slotQuotaId")
+                                avail   = slot_to.get("available", 0)
+                                stime   = slot_entry.get("slotDisplayStartTime", "")
+                                etime   = slot_entry.get("slotDisplayEndTime", "")
+                                if avail and slot_id:
+                                    if _is_urgent:
+                                        center_urgent.append((date_str, stime, etime, slot_id, avail))
+                                    else:
+                                        center_normal.append((date_str, stime, etime, slot_id, avail))
+                                    _avail_times.append(stime.replace(" ", ""))
+                            print(f"{_tag}[{center_name}] Month: {_month_name}  Date: {_date_display}  Time Slots: {'  '.join(_avail_times) if _avail_times else 'Not Available'}")
+
+                    if got_429:
+                        break
+                    all_center_slots[center_name] = {"urgent": center_urgent, "normal": center_normal}
+
+                if got_429:
+                    continue
+
+                # ── Phase 2: Discord alerts per center ────────────────────────
+                any_slots_found = False
+                for center_name, slots_dict in all_center_slots.items():
+                    c_urgent = slots_dict["urgent"]
+                    c_normal = slots_dict["normal"]
+                    if not c_urgent and not c_normal:
+                        continue
+                    any_slots_found = True
+                    c_urgent.sort(key=lambda x: (x[0], x[1]))
+                    c_normal.sort(key=lambda x: (x[0], x[1]))
+
+                    print(f"\n{'─'*50}")
+                    if c_urgent:
+                        print(f"[URGENT] {len(c_urgent)} slot(s) at {center_name}:")
+                        for (ds, st, et, sid, av) in c_urgent:
+                            _dtu = datetime.strptime(ds, "%Y-%m-%d")
+                            print(f"[URGENT] [{center_name}] Month: {_dtu.strftime('%B')}  Date: {_dtu.month}-{_dtu.day}-{_dtu.year}  Time: {st.replace(' ','')}")
+                    if c_normal:
+                        print(f"[NORMAL] {len(c_normal)} slot(s) at {center_name}:")
+                        for (ds, st, et, sid, av) in c_normal:
+                            _dtn = datetime.strptime(ds, "%Y-%m-%d")
+                            print(f"[NORMAL] [{center_name}] Month: {_dtn.strftime('%B')}  Date: {_dtn.month}-{_dtn.day}-{_dtn.year}  Time: {st.replace(' ','')}")
+                    print(f"{'─'*50}")
+
+                    _urgent_dates = {ds for (ds, *_) in c_urgent if _should_alert(center_name, ds)}
+                    _normal_dates = {ds for (ds, *_) in c_normal if _should_alert(center_name, ds)}
+                    _new_urgent = [(ds, st, et, sid, av) for (ds, st, et, sid, av) in c_urgent if ds in _urgent_dates]
+                    _new_normal = [(ds, st, et, sid, av) for (ds, st, et, sid, av) in c_normal if ds in _normal_dates]
+
+                    if _new_urgent:
+                        _umsg = "@everyone\n\U0001f514 **URGENT RESCHEDULE SLOTS AVAILABLE**\n"
+                        _umsg += f"\U0001f4cd **{center_name}**\n"
+                        _umsg += "\U0001f534 Before: " + URGENT_MEDICAL_DATE + "\n\n"
+                        _u_d = {}
+                        for (ds, st, et, sid, av) in _new_urgent:
+                            _u_d.setdefault(ds, []).append(st.replace(" ", ""))
+                        for ds, times in _u_d.items():
+                            _udt = datetime.strptime(ds, "%Y-%m-%d")
+                            _umsg += f"\U0001f4c5  **{_udt.strftime('%B')}**  |  {_udt.month}-{_udt.day}-{_udt.year}\n"
+                            _umsg += "⏰  " + "   •   ".join(times) + "\n\n"
+                        _notify_discord(_umsg.strip(), webhook=DISCORD_URGENT_WEBHOOK)
+                    if _new_normal:
+                        _nmsg = "@everyone\n\U0001f514 **RESCHEDULE SLOTS AVAILABLE**\n"
+                        _nmsg += f"\U0001f4cd **{center_name}**\n\n"
+                        _n_d = {}
+                        for (ds, st, et, sid, av) in _new_normal:
+                            _n_d.setdefault(ds, []).append(st.replace(" ", ""))
+                        for ds, times in _n_d.items():
+                            _ndt = datetime.strptime(ds, "%Y-%m-%d")
+                            _nmsg += f"\U0001f4c5  **{_ndt.strftime('%B')}**  |  {_ndt.month}-{_ndt.day}-{_ndt.year}\n"
+                            _nmsg += "⏰  " + "   •   ".join(times) + "\n\n"
+                        _notify_discord(_nmsg.strip(), webhook=DISCORD_WEBHOOK)
+
+                if not any_slots_found:
                     print(f"[POLL] No slots found. Next scan in {POLL_INTERVAL}s...")
                     time.sleep(POLL_INTERVAL)
                     continue
 
-                urgent_slots.sort(key=lambda x: (x[0], x[1]))
-                normal_slots.sort(key=lambda x: (x[0], x[1]))
-
-                print(f"\n{'─'*50}")
-                if urgent_slots:
-                    print(f"[URGENT] {len(urgent_slots)} slot(s) at {QVC_CENTER}:")
-                    for (ds, st, et, sid, av) in urgent_slots:
-                        _dtu = datetime.strptime(ds, "%Y-%m-%d")
-                        print(f"[URGENT] Month: {_dtu.strftime('%B')}  Date: {_dtu.month}-{_dtu.day}-{_dtu.year}  Time: {st.replace(' ','')}")
-                if normal_slots:
-                    print(f"[NORMAL] {len(normal_slots)} slot(s) at {QVC_CENTER}:")
-                    for (ds, st, et, sid, av) in normal_slots:
-                        _dtn = datetime.strptime(ds, "%Y-%m-%d")
-                        print(f"[NORMAL] Month: {_dtn.strftime('%B')}  Date: {_dtn.month}-{_dtn.day}-{_dtn.year}  Time: {st.replace(' ','')}")
-                print(f"{'─'*50}")
-
-                # Discord alert
-                _dmsg = "\U0001f514 **SLOTS AVAILABLE**\n"
-                _dmsg += f"\U0001f4cd **{QVC_CENTER}**\n\n"
-                if urgent_slots:
-                    _dmsg += "\U0001f534 **URGENT** *(before " + (URGENT_MEDICAL_DATE or "") + ")*\n"
-                    _u_dates = {}
-                    for (ds, st, et, sid, av) in urgent_slots:
-                        _u_dates.setdefault(ds, []).append(st.replace(" ", ""))
-                    for ds, times in _u_dates.items():
-                        _dtu2 = datetime.strptime(ds, "%Y-%m-%d")
-                        _dmsg += f"\U0001f4c5  **{_dtu2.strftime('%B')}**  |  {_dtu2.month}-{_dtu2.day}-{_dtu2.year}\n"
-                        _dmsg += "\u23f0  " + "   \u2022   ".join(times) + "\n\n"
-                if normal_slots:
-                    _dmsg += "\U0001f7e2 **NORMAL**\n"
-                    _n_dates = {}
-                    for (ds, st, et, sid, av) in normal_slots:
-                        _n_dates.setdefault(ds, []).append(st.replace(" ", ""))
-                    for ds, times in _n_dates.items():
-                        _dtn2 = datetime.strptime(ds, "%Y-%m-%d")
-                        _dmsg += f"\U0001f4c5  **{_dtn2.strftime('%B')}**  |  {_dtn2.month}-{_dtn2.day}-{_dtn2.year}\n"
-                        _dmsg += "\u23f0  " + "   \u2022   ".join(times) + "\n\n"
-                # Discord alerts — urgent and normal completely separate
-                # Only alert slots not seen in the last 30 minutes
-                _urgent_dates = {ds for (ds, *_) in urgent_slots if _should_alert(ds)}
-                _normal_dates = {ds for (ds, *_) in normal_slots if _should_alert(ds)}
-                _new_urgent = [(ds, st, et, sid, av) for (ds, st, et, sid, av) in urgent_slots if ds in _urgent_dates]
-                _new_normal = [(ds, st, et, sid, av) for (ds, st, et, sid, av) in normal_slots if ds in _normal_dates]
-
-                if _new_urgent:
-                    _umsg = "@everyone\n\U0001f514 **URGENT RESCHEDULE SLOTS AVAILABLE**\n"
-                    _umsg += f"\U0001f4cd **{QVC_CENTER}**\n"
-                    _umsg += "\U0001f534 Before: " + URGENT_MEDICAL_DATE + "\n\n"
-                    _u_d = {}
-                    for (ds, st, et, sid, av) in _new_urgent:
-                        _u_d.setdefault(ds, []).append(st.replace(" ", ""))
-                    for ds, times in _u_d.items():
-                        _udt = datetime.strptime(ds, "%Y-%m-%d")
-                        _umsg += f"\U0001f4c5  **{_udt.strftime('%B')}**  |  {_udt.month}-{_udt.day}-{_udt.year}\n"
-                        _umsg += "⏰  " + "   •   ".join(times) + "\n\n"
-                    _notify_discord(_umsg.strip(), webhook=DISCORD_URGENT_WEBHOOK)
-                if normal_slots:
-                    _nmsg = "@everyone\n\U0001f514 **RESCHEDULE SLOTS AVAILABLE**\n"
-                    _nmsg += f"\U0001f4cd **{QVC_CENTER}**\n\n"
-                    _n_d = {}
-                    for (ds, st, et, sid, av) in _new_normal:
-                        _n_d.setdefault(ds, []).append(st.replace(" ", ""))
-                    for ds, times in _n_d.items():
-                        _ndt = datetime.strptime(ds, "%Y-%m-%d")
-                        _nmsg += f"\U0001f4c5  **{_ndt.strftime('%B')}**  |  {_ndt.month}-{_ndt.day}-{_ndt.year}\n"
-                        _nmsg += "⏰  " + "   •   ".join(times) + "\n\n"
-                    _notify_discord(_nmsg.strip(), webhook=DISCORD_WEBHOOK)
-
-                # Decide what to book
+                # Phase 3 setup: extract booking slots from target center only
+                urgent_slots = all_center_slots.get(QVC_CENTER, {}).get("urgent", [])
+                normal_slots = all_center_slots.get(QVC_CENTER, {}).get("normal", [])
+                all_slots = urgent_slots + normal_slots
                 slots_to_book = urgent_slots if URGENT_MEDICAL_DATE else all_slots
                 if not slots_to_book:
                     print(f"[POLL] No URGENT slots found before {URGENT_MEDICAL_DATE}. Waiting {POLL_INTERVAL}s...")
                     time.sleep(POLL_INTERVAL)
                     continue
+
                 _eb2 = slots_to_book[0]
                 print(f"[BOOKING] Attempting earliest: {_eb2[0]}  {_eb2[1]}")
 
