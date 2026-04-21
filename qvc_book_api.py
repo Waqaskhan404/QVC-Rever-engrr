@@ -853,8 +853,8 @@ _ALERT_COOLDOWN = 30 * 60  # 30 minutes
 _alerted_slots: dict = {}  # (date_str, time_str) -> last alert timestamp
 
 
-def _should_alert(date_str: str, time_str: str) -> bool:
-    key = (date_str, time_str)
+def _should_alert(date_str: str) -> bool:
+    key = date_str
     last = _alerted_slots.get(key)
     if last is None or time.time() - last >= _ALERT_COOLDOWN:
         _alerted_slots[key] = time.time()
@@ -1096,8 +1096,8 @@ def run():
                         _dmsg += "\u23f0  " + "   \u2022   ".join(times) + "\n\n"
                 # Urgent slots → urgent channel; normal slots → normal channel
                 # Only alert slots not seen in the last 30 minutes
-                _new_urgent = [(ds, st, et, sid, av) for (ds, st, et, sid, av) in urgent_slots if _should_alert(ds, st)]
-                _new_normal = [(ds, st, et, sid, av) for (ds, st, et, sid, av) in normal_slots if _should_alert(ds, st)]
+                _new_urgent = [(ds, st, et, sid, av) for (ds, st, et, sid, av) in urgent_slots if _should_alert(ds)]
+                _new_normal = [(ds, st, et, sid, av) for (ds, st, et, sid, av) in normal_slots if _should_alert(ds)]
 
                 if _new_urgent:
                     _umsg = "\U0001f514 **URGENT SLOTS AVAILABLE**\n"
