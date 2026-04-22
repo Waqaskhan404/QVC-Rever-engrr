@@ -1173,6 +1173,14 @@ def run():
                         if cap2_valid:
                             break
                         print(f"[CAPTCHA2] Wrong answer...")
+                        if (cap2_attempt + 1) % 5 == 0:
+                            _notify_discord(
+                                f"⚠️ **Captcha 2 Failed {cap2_attempt + 1} Times**\n"
+                                f"📅 Slot: {date_str}  ⏰ {start_time}\n"
+                                f"Waiting 10s then retrying...",
+                                webhook=DISCORD_STATUS_WEBHOOK,
+                            )
+                            time.sleep(10)
 
                     if not cap2_valid:
                         print(f"[CAPTCHA2] Failed after 15 attempts — still attempting save")
@@ -1194,6 +1202,10 @@ def run():
                         result = save_booking(sess, token, save_payload)
                     except ApiError as e:
                         print(f"[SAVE] Error: {e}")
+                        _notify_discord(
+                            f"❌ **Save API Error**\n`{e}`\n📅 {date_str}  ⏰ {booking_time}",
+                            webhook=DISCORD_STATUS_WEBHOOK,
+                        )
                         continue
 
                     msg_code = result.get("messageCode", "")
@@ -1202,9 +1214,17 @@ def run():
 
                     if msg_code == "E016":
                         print("[SAVE] E016 captcha wrong — retrying next slot")
+                        _notify_discord(
+                            f"⚠️ **Save Error E016** — Captcha wrong\n📅 {date_str}  ⏰ {booking_time}\nRetrying next slot...",
+                            webhook=DISCORD_STATUS_WEBHOOK,
+                        )
                         continue
                     if msg_code:
                         print(f"[SAVE] Server error: {msg_code}  status={status}")
+                        _notify_discord(
+                            f"❌ **Save Server Error**\nCode: `{msg_code}`  Status: `{status}`\n📅 {date_str}  ⏰ {booking_time}",
+                            webhook=DISCORD_STATUS_WEBHOOK,
+                        )
                         continue
 
                     if status in ("OK", "200 OK") or icr.get("paymentStatus") == "SUCCESS":
@@ -1214,13 +1234,15 @@ def run():
                         print(f"   Visa:   {VISA_NUMBER}  Pass: {PASSPORT_NUMBER}")
                         print("★" * 60 + "\n")
                         _booked_dt = datetime.strptime(date_str, "%Y-%m-%d")
-                        _notify_discord(
+                        _success_msg = (
                             "\u2705 **APPOINTMENT BOOKED!**\n"
                             f"\U0001f4cd  {QVC_CENTER}\n\n"
                             f"\U0001f4c5  **{_booked_dt.strftime('%B')}**  |  {_booked_dt.month}-{_booked_dt.day}-{_booked_dt.year}\n"
                             f"\u23f0  {booking_time}\n"
                             f"\U0001f6c2  Passport: {PASSPORT_NUMBER}"
                         )
+                        _notify_discord(_success_msg)
+                        _notify_discord(_success_msg, webhook=DISCORD_STATUS_WEBHOOK)
                         found = True
                         break
 

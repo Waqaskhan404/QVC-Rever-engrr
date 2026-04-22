@@ -1089,6 +1089,12 @@ def run():
                         print(f"[CAPTCHA2] Wrong answer...")
                         if (cap2_attempt + 1) % 5 == 0:
                             print(f"[CAPTCHA2] 5 wrong in a row — waiting 10s...")
+                            _notify_discord(
+                                f"⚠️ **Captcha 2 Failed {cap2_attempt + 1} Times**\n"
+                                f"📅 Slot: {date_str}  ⏰ {start_time}\n"
+                                f"Waiting 10s then retrying...",
+                                webhook=DISCORD_STATUS_WEBHOOK,
+                            )
                             time.sleep(10)
 
                     if not cap2_valid:
@@ -1107,6 +1113,10 @@ def run():
                         result = save_reschedule(sess, token, save_payload)
                     except ApiError as e:
                         print(f"[SAVE] Error: {e}")
+                        _notify_discord(
+                            f"❌ **Save API Error**\n`{e}`\n📅 {date_str}  ⏰ {booking_time}",
+                            webhook=DISCORD_STATUS_WEBHOOK,
+                        )
                         continue
 
                     msg_code = result.get("messageCode", "")
@@ -1115,9 +1125,17 @@ def run():
 
                     if msg_code == "E016":
                         print("[SAVE] E016 captcha wrong — retrying next slot")
+                        _notify_discord(
+                            f"⚠️ **Save Error E016** — Captcha wrong\n📅 {date_str}  ⏰ {booking_time}\nRetrying next slot...",
+                            webhook=DISCORD_STATUS_WEBHOOK,
+                        )
                         continue
                     if msg_code:
                         print(f"[SAVE] Server error: {msg_code}  status={status}")
+                        _notify_discord(
+                            f"❌ **Save Server Error**\nCode: `{msg_code}`  Status: `{status}`\n📅 {date_str}  ⏰ {booking_time}",
+                            webhook=DISCORD_STATUS_WEBHOOK,
+                        )
                         continue
 
                     if status in ("OK", "200 OK") or icr.get("paymentStatus") == "SUCCESS":
@@ -1126,6 +1144,17 @@ def run():
                         print(f"   Center: {QVC_CENTER}")
                         print(f"   ref:    {resched_to.get('applicationReferenceNumber')}")
                         print("★" * 60 + "\n")
+                        _rescheduled_dt = datetime.strptime(date_str, "%Y-%m-%d")
+                        _success_msg = (
+                            "✅ **APPOINTMENT RESCHEDULED!**\n"
+                            f"📍  {QVC_CENTER}\n\n"
+                            f"📅  **{_rescheduled_dt.strftime('%B')}**  |  {_rescheduled_dt.month}-{_rescheduled_dt.day}-{_rescheduled_dt.year}\n"
+                            f"⏰  {booking_time}\n"
+                            f"🗂  Ref: {resched_to.get('applicationReferenceNumber')}\n"
+                            f"🛂  Passport: {PASSPORT_NUMBER}"
+                        )
+                        _notify_discord(_success_msg)
+                        _notify_discord(_success_msg, webhook=DISCORD_STATUS_WEBHOOK)
                         _play_alert()
                         found = True
                         break
