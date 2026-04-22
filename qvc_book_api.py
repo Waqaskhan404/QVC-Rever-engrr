@@ -1016,10 +1016,17 @@ def run():
                             _is_urgent = _is_before_urgent(date_str)
                             _label = "URGENT" if (URGENT_MEDICAL_DATE and _is_urgent) else ("NORMAL" if URGENT_MEDICAL_DATE else "")
                             _tag   = f"[{_label}] " if _label else ""
-                            slots = fetch_slots(
-                                sess, token, date_str,
-                                center_vsc["vscId"], enc_visa, enc_pass, sponsor_type_ids,
-                            )
+                            try:
+                                slots = fetch_slots(
+                                    sess, token, date_str,
+                                    center_vsc["vscId"], enc_visa, enc_pass, sponsor_type_ids,
+                                )
+                            except RateLimitError:
+                                print(f"[429] Rate limited on fetchslot — switching proxy...")
+                                proxy_line = _pick_proxy()
+                                sess = _make_session(proxy_line)
+                                got_429 = True
+                                break
                             _dt = datetime.strptime(date_str, "%Y-%m-%d")
                             _month_name   = _dt.strftime("%B")
                             _date_display = f"{_dt.month}-{_dt.day}-{_dt.year}"
@@ -1044,6 +1051,8 @@ def run():
                                     _avail_times.append(stime.replace(" ", ""))
                             _slot_status = ("\U0001f7e2 Open: " + "  ".join(_avail_times)) if _avail_times else "\U0001f534 Not Available"
                             print(f"{_tag}\U0001f4cd {center_name}  Month: {_month_name}  Date: {_date_display}  Time Slots: {_slot_status}")
+                        if got_429:
+                            break
 
                     if got_429:
                         break
@@ -1139,6 +1148,11 @@ def run():
 
                     try:
                         uid = check_slot_available(sess, token, schedule_to, slot_id, enc_visa, enc_pass)
+                    except RateLimitError:
+                        print(f"[429] Rate limited on checkslot — switching proxy...")
+                        proxy_line = _pick_proxy()
+                        sess = _make_session(proxy_line)
+                        continue
                     except ApiError as e:
                         print(f"[SLOT] checkslotavailable error: {e}")
                         continue
