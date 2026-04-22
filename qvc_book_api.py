@@ -21,6 +21,7 @@ import random
 import sys
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
 # ── third-party ───────────────────────────────────────────────────────────────
@@ -852,6 +853,8 @@ def _notify_discord(message: str, webhook: str = None):
 
 _ALERT_COOLDOWN = 30 * 60  # 30 minutes
 _alerted_slots: dict = {}  # (date_str, time_str) -> last alert timestamp
+_alerted_no_slots: dict = {}
+_NO_SLOT_COOLDOWN = 30 * 60  # 30 minutes
 
 
 def _should_alert(center: str, date_str: str) -> bool:
@@ -859,6 +862,15 @@ def _should_alert(center: str, date_str: str) -> bool:
     last = _alerted_slots.get(key)
     if last is None or time.time() - last >= _ALERT_COOLDOWN:
         _alerted_slots[key] = time.time()
+        return True
+    return False
+
+
+def _should_alert_no_slot(center: str, date_str: str) -> bool:
+    key = (center, date_str)
+    last = _alerted_no_slots.get(key)
+    if last is None or time.time() - last >= _NO_SLOT_COOLDOWN:
+        _alerted_no_slots[key] = time.time()
         return True
     return False
 
@@ -887,6 +899,20 @@ def _get_year_months() -> list[tuple[int, int]]:
             y += 1
         result.append((y, m))
     return result
+
+
+def _dates_worker(center_name, vsc_id, year, month, token, proxy_line,
+                  visa_type_id, enc_visa, enc_pass, sponsor_type_ids):
+    t_sess = _make_session(proxy_line)
+    return get_appointment_dates(
+        t_sess, token, year, month, vsc_id,
+        visa_type_id, enc_visa, enc_pass, sponsor_type_ids
+    )
+
+
+def _slots_worker(date_str, vsc_id, token, proxy_line, enc_visa, enc_pass, sponsor_type_ids):
+    t_sess = _make_session(proxy_line)
+    return fetch_slots(t_sess, token, date_str, vsc_id, enc_visa, enc_pass, sponsor_type_ids)
 
 
 def run():
@@ -982,56 +1008,101 @@ def run():
                 poll_num += 1
                 print(f"\n[POLL {poll_num}] {datetime.now().strftime('%H:%M:%S')}")
 
-                # Phase 1: scan ALL centers + all months
+                # Phase 1: scan ALL centers + all months in parallel
                 all_center_slots = {}
                 got_429 = False
 
-                for center_name, center_vsc in VSC_MAP.items():
-                    center_urgent = []
-                    center_normal = []
-                    for (year, month) in year_months:
-                        print(f"[SCAN] {calendar.month_name[month]} {year} → {center_name}")
+                # Step 1a: fetch available dates for all center+month combos in parallel
+                _date_scan_tasks = [
+                    (cname, cvsc, yr, mo)
+                    for cname, cvsc in VSC_MAP.items()
+                    for (yr, mo) in year_months
+                ]
+                _dates_map = {}
+
+                with ThreadPoolExecutor(max_workers=len(_date_scan_tasks)) as _ex:
+                    _fmap = {
+                        _ex.submit(
+                            _dates_worker,
+                            cname, cvsc["vscId"], yr, mo, token, proxy_line,
+                            visa_type_id, enc_visa, enc_pass, sponsor_type_ids
+                        ): (cname, yr, mo)
+                        for (cname, cvsc, yr, mo) in _date_scan_tasks
+                    }
+                    for _fut in as_completed(_fmap):
+                        _key = _fmap[_fut]
                         try:
-                            available_dates = get_appointment_dates(
-                                sess, token, year, month,
-                                center_vsc["vscId"], visa_type_id,
-                                enc_visa, enc_pass, sponsor_type_ids,
-                            )
+                            _dates_map[_key] = _fut.result() or []
                         except SessionExpiredError as e:
-                            print(f"[SESSION] Expired ({e}) — restarting...")
                             raise SessionExpiredError(e)
                         except RateLimitError:
-                            print(f"[429] Rate limited — switching proxy...")
+                            print(f"[429] Rate limited on dates scan — switching proxy...")
                             proxy_line = _pick_proxy()
                             sess = _make_session(proxy_line)
                             got_429 = True
-                            break
 
-                        if not available_dates:
-                            print(f"[SCAN] No dates available for {calendar.month_name[month]} {year}")
-                            continue
+                if got_429:
+                    continue
 
-                        print(f"[SCAN] Dates found for {calendar.month_name[month]} {year}: {', '.join(available_dates)}")
-                        for date_str in available_dates:
-                            _is_urgent = _is_before_urgent(date_str)
-                            _label = "URGENT" if (URGENT_MEDICAL_DATE and _is_urgent) else ("NORMAL" if URGENT_MEDICAL_DATE else "")
-                            _tag   = f"[{_label}] " if _label else ""
+                # Step 1b: fetch slots for all (center, date) combos in parallel
+                _slot_scan_tasks = [
+                    (cname, VSC_MAP[cname], date_str)
+                    for (cname, yr, mo), dates in _dates_map.items()
+                    for date_str in dates
+                ]
+                _slots_map = {}
+
+                if _slot_scan_tasks:
+                    with ThreadPoolExecutor(max_workers=min(len(_slot_scan_tasks), 8)) as _ex:
+                        _fmap = {
+                            _ex.submit(
+                                _slots_worker,
+                                date_str, cvsc["vscId"],
+                                token, proxy_line, enc_visa, enc_pass, sponsor_type_ids
+                            ): (cname, date_str)
+                            for (cname, cvsc, date_str) in _slot_scan_tasks
+                        }
+                        for _fut in as_completed(_fmap):
+                            _key = _fmap[_fut]
                             try:
-                                slots = fetch_slots(
-                                    sess, token, date_str,
-                                    center_vsc["vscId"], enc_visa, enc_pass, sponsor_type_ids,
-                                )
+                                _slots_map[_key] = _fut.result() or []
                             except RateLimitError:
                                 print(f"[429] Rate limited on fetchslot — switching proxy...")
                                 proxy_line = _pick_proxy()
                                 sess = _make_session(proxy_line)
                                 got_429 = True
-                                break
-                            _dt = datetime.strptime(date_str, "%Y-%m-%d")
+
+                if got_429:
+                    continue
+
+                # Step 1c: build all_center_slots, print results, alert on no-slot dates
+                for center_name, center_vsc in VSC_MAP.items():
+                    center_urgent = []
+                    center_normal = []
+                    for (yr, mo) in year_months:
+                        dates = _dates_map.get((center_name, yr, mo), [])
+                        if not dates:
+                            print(f"[SCAN] No dates available for {calendar.month_name[mo]} {yr} at {center_name}")
+                            continue
+                        print(f"[SCAN] Dates found for {calendar.month_name[mo]} {yr} at {center_name}: {', '.join(dates)}")
+                        for date_str in dates:
+                            _is_urgent = _is_before_urgent(date_str)
+                            _label = "URGENT" if (URGENT_MEDICAL_DATE and _is_urgent) else ("NORMAL" if URGENT_MEDICAL_DATE else "")
+                            _tag   = f"[{_label}] " if _label else ""
+                            slots  = _slots_map.get((center_name, date_str), [])
+                            _dt    = datetime.strptime(date_str, "%Y-%m-%d")
                             _month_name   = _dt.strftime("%B")
                             _date_display = f"{_dt.month}-{_dt.day}-{_dt.year}"
                             if not slots:
                                 print(f"{_tag}[{center_name}] Month: {_month_name}  Date: {_date_display}  Time Slots: \U0001f534 Not Available")
+                                if _should_alert_no_slot(center_name, date_str):
+                                    _notify_discord(
+                                        f"\U0001f514 Slots \U0001f7e2 Open\n"
+                                        f"\U0001f4cd Center: {center_name}\n"
+                                        f"\U0001f4c5 Date : {_month_name}-{_dt.day}-{_dt.year}\n"
+                                        f"⏰ No slot available",
+                                        webhook=DISCORD_URGENT_WEBHOOK if (URGENT_MEDICAL_DATE and _is_urgent) else DISCORD_WEBHOOK,
+                                    )
                                 continue
                             _avail_times = []
                             for slot_entry in slots:
@@ -1051,15 +1122,16 @@ def run():
                                     _avail_times.append(stime.replace(" ", ""))
                             _slot_status = ("\U0001f7e2 Open: " + "  ".join(_avail_times)) if _avail_times else "\U0001f534 Not Available"
                             print(f"{_tag}\U0001f4cd {center_name}  Month: {_month_name}  Date: {_date_display}  Time Slots: {_slot_status}")
-                        if got_429:
-                            break
-
-                    if got_429:
-                        break
+                            if not _avail_times:
+                                if _should_alert_no_slot(center_name, date_str):
+                                    _notify_discord(
+                                        f"\U0001f514 Slots \U0001f7e2 Open\n"
+                                        f"\U0001f4cd Center: {center_name}\n"
+                                        f"\U0001f4c5 Date : {_month_name}-{_dt.day}-{_dt.year}\n"
+                                        f"⏰ No slot available",
+                                        webhook=DISCORD_URGENT_WEBHOOK if (URGENT_MEDICAL_DATE and _is_urgent) else DISCORD_WEBHOOK,
+                                    )
                     all_center_slots[center_name] = {"urgent": center_urgent, "normal": center_normal}
-
-                if got_429:
-                    continue
 
                 # Phase 2: Discord alerts per center
                 any_slots_found = False
@@ -1161,43 +1233,52 @@ def run():
                         continue
                     print(f"[SLOT] Confirmed: {date_str} {start_time}  uid={uid}")
 
-                    # Captcha 2
+                    # Captcha 2 — 5 attempts per cycle; alert + 10s wait + fresh captcha on failure
                     print("[CAPTCHA2] Getting schedule captcha...")
                     sch_cap_to = None
                     cap2_valid = False
-                    for cap2_attempt in range(15):
-                        sch_cap_to = get_schedule_captcha(
-                            sess, token, enc_visa, enc_pass,
-                            sch_cap_to.get("captchaId") if sch_cap_to else None,
-                        )
-                        img2_b64 = sch_cap_to.get("imageString", "")
-                        if not img2_b64:
-                            break
-                        cap2_text = solve_captcha(base64.b64decode(img2_b64))
-                        if not cap2_text:
-                            print(f"[CAPTCHA2] Could not solve ({cap2_attempt+1}/15), refreshing...")
-                            continue
-                        print(f"[CAPTCHA2] Answer: '{cap2_text}' ({cap2_attempt+1}/15)")
-                        try:
-                            cap2_valid = validate_schedule_captcha(
+                    cap2_text = ""
+
+                    for cap2_cycle in range(5):
+                        for cap2_attempt in range(5):
+                            sch_cap_to = get_schedule_captcha(
                                 sess, token, enc_visa, enc_pass,
-                                sch_cap_to["captchaId"], cap2_text)
-                        except ApiError as e:
-                            print(f"[CAPTCHA2] Validation error: {e}")
+                                sch_cap_to.get("captchaId") if sch_cap_to else None,
+                            )
+                            img2_b64 = sch_cap_to.get("imageString", "")
+                            if not img2_b64:
+                                break
+                            cap2_text = solve_captcha(base64.b64decode(img2_b64))
+                            if not cap2_text:
+                                print(f"[CAPTCHA2] Could not solve (cycle {cap2_cycle+1}, attempt {cap2_attempt+1}/5), refreshing...")
+                                continue
+                            print(f"[CAPTCHA2] Answer: '{cap2_text}' (cycle {cap2_cycle+1}, attempt {cap2_attempt+1}/5)")
+                            try:
+                                cap2_valid = validate_schedule_captcha(
+                                    sess, token, enc_visa, enc_pass,
+                                    sch_cap_to["captchaId"], cap2_text)
+                            except ApiError as e:
+                                print(f"[CAPTCHA2] Validation error: {e}")
+                            if cap2_valid:
+                                break
+                            print(f"[CAPTCHA2] Wrong answer...")
+
                         if cap2_valid:
                             break
-                        print(f"[CAPTCHA2] Wrong answer...")
-                        if (cap2_attempt + 1) % 5 == 0:
-                            _notify_discord(
-                                f"⚠️ **Captcha 2 Failed {cap2_attempt + 1} Times**\n"
-                                f"📅 Slot: {date_str}  ⏰ {start_time}\n"
-                                f"Waiting 10s then retrying...",
-                                webhook=DISCORD_SERVER_WEBHOOK,
-                            )
-                            time.sleep(10)
+
+                        _total = (cap2_cycle + 1) * 5
+                        print(f"[CAPTCHA2] {_total} attempts failed — alerting, waiting 10s for mobile...")
+                        _notify_discord(
+                            f"⚠️ **Captcha 2 Failed {_total} Times**\n"
+                            f"📅 Slot: {date_str}  ⏰ {start_time}\n"
+                            f"Open site on mobile and select center within 10s...",
+                            webhook=DISCORD_SERVER_WEBHOOK,
+                        )
+                        time.sleep(10)
+                        sch_cap_to = None
 
                     if not cap2_valid:
-                        print(f"[CAPTCHA2] Failed after 15 attempts — still attempting save")
+                        print(f"[CAPTCHA2] All cycles exhausted — still attempting save")
 
                     save_payload = _build_save_payload(
                         visa_holder, target_vsc, date_str, booking_time, uid,
