@@ -80,6 +80,7 @@ ORIGIN    = "https://www.qatarvisacenter.com"
 
 DISCORD_WEBHOOK        = "https://discordapp.com/api/webhooks/1495888024561516777/Hdcv7CY-fE8zjtxo3eYupCVLYzapg_cIlY3lbF0YSLWWyor1TIq7hBWYMCn4RsF2TOGO"
 DISCORD_URGENT_WEBHOOK = "https://discord.com/api/webhooks/1496147361569833140/-LydSfbfDWM0KWlEjhePMABhEMzgTbp8i0wm_aiHPJ7565KdIMQMFKMZhgQMd7zZnK0Q"
+DISCORD_STATUS_WEBHOOK = "https://discord.com/api/webhooks/1496431421349302454/hGxi17liWF64k-Amp7QzxF9tJm1cWtBwoeV2S0pe49haa5sdf8wurqlYKrvEZ9r6BJA6"
 
 VSC_MAP = {
     "Islamabad": {"vscId": 4050, "vscName": "Islamabad", "vscCode": "IS"},
@@ -804,7 +805,8 @@ def run():
     _notify_discord(
         f"\U0001f7e2 **QVC Bot Started**\n"
         f"\U0001f4cd Centers: **Islamabad, Karachi**\n"
-        f"\U0001f4c5 Scanning: {', '.join(MONTHS_TO_CHECK)}"
+        f"\U0001f4c5 Scanning: {', '.join(MONTHS_TO_CHECK)}",
+        webhook=DISCORD_STATUS_WEBHOOK,
     )
     _load_proxies()
 
@@ -888,12 +890,10 @@ def run():
             except Exception as e:
                 print(f"[API] getVscDetails skipped: {e}")
 
-            # ── Poll loop — reuse same session until token expires ────────────
+            # ── Poll loop — runs until server signals session expired ─────────
             poll_num = 0
-            token_start = time.time()
-            TOKEN_LIFETIME = 18 * 60  # refresh after 18 min (token lasts ~20 min)
 
-            while time.time() - token_start < TOKEN_LIFETIME:
+            while True:
                 poll_num += 1
                 print(f"\n[POLL {poll_num}] {datetime.now().strftime('%H:%M:%S')}")
 
@@ -913,7 +913,7 @@ def run():
                                 enc_visa, enc_pass, sponsor_type_ids,
                             )
                         except SessionExpiredError as e:
-                            print(f"[SESSION] Server session expired ({e}) — restarting full session...")
+                            print(f"[SESSION] Expired ({e}) — restarting...")
                             raise SessionExpiredError(e)
                         except RateLimitError:
                             print(f"[429] Rate limited — switching proxy, keeping token...")
@@ -970,6 +970,8 @@ def run():
 
                 # ── Phase 2: Discord alerts per center ────────────────────────
                 any_slots_found = False
+                _urgent_parts = []
+                _normal_parts = []
                 for center_name, slots_dict in all_center_slots.items():
                     c_urgent = slots_dict["urgent"]
                     c_normal = slots_dict["normal"]
@@ -998,33 +1000,34 @@ def run():
                     _new_normal = [(ds, st, et, sid, av) for (ds, st, et, sid, av) in c_normal if ds in _normal_dates]
 
                     if _new_urgent:
-                        _umsg = "@everyone\n\U0001f514 Slots \U0001f7e2 Open\n"
-                        _umsg += f"\U0001f4cd Centers: **Islamabad, Karachi**\n"
-                        _umsg += "\U0001f534 Before: " + URGENT_MEDICAL_DATE + "\n\n"
                         _u_d = {}
                         for (ds, st, et, sid, av) in _new_urgent:
                             _u_d.setdefault(ds, []).append(st.replace(" ", ""))
+                        _upart = f"\U0001f514 Slots \U0001f7e2 Open\n"
+                        _upart += f"\U0001f4cd Center: {center_name}\n"
+                        _upart += "\U0001f534 Before: " + URGENT_MEDICAL_DATE + "\n"
                         for ds, times in _u_d.items():
                             _udt = datetime.strptime(ds, "%Y-%m-%d")
-                            _umsg += f"\U0001f4c5  **{_udt.strftime('%B')}**  |  {_udt.month}-{_udt.day}-{_udt.year}\n"
-                            _umsg += f"\U0001f4cd Center: {center_name}\n"
-                            for i in range(0, len(times), 3):
-                                _umsg += "⏰  " + "   ".join(times[i:i+3]) + "\n"
-                            _umsg += "\n"
-                        _notify_discord(_umsg.strip(), webhook=DISCORD_URGENT_WEBHOOK)
+                            _upart += f"\U0001f4c5 Date : {_udt.strftime('%B')}-{_udt.day}-{_udt.year}\n"
+                            _upart += ("⏰  " + "   ".join(times) + "\n") if times else "⏰ No Time Slot available\n"
+                        _urgent_parts.append(_upart.strip())
+
                     if _new_normal:
-                        _nmsg = "@everyone\n\U0001f514 Slots \U0001f7e2 Open\n"
                         _n_d = {}
                         for (ds, st, et, sid, av) in _new_normal:
                             _n_d.setdefault(ds, []).append(st.replace(" ", ""))
+                        _npart = f"\U0001f514 Slots \U0001f7e2 Open\n"
+                        _npart += f"\U0001f4cd Center: {center_name}\n"
                         for ds, times in _n_d.items():
                             _ndt = datetime.strptime(ds, "%Y-%m-%d")
-                            _nmsg += f"\U0001f4c5  **{_ndt.strftime('%B')}**  |  {_ndt.month}-{_ndt.day}-{_ndt.year}\n"
-                            _nmsg += f"\U0001f4cd Center: {center_name}\n"
-                            for i in range(0, len(times), 3):
-                                _nmsg += "⏰  " + "   ".join(times[i:i+3]) + "\n"
-                            _nmsg += "\n"
-                        _notify_discord(_nmsg.strip(), webhook=DISCORD_WEBHOOK)
+                            _npart += f"\U0001f4c5 Date : {_ndt.strftime('%B')}-{_ndt.day}-{_ndt.year}\n"
+                            _npart += ("⏰  " + "   ".join(times) + "\n") if times else "⏰ No Time Slot available\n"
+                        _normal_parts.append(_npart.strip())
+
+                if _urgent_parts:
+                    _notify_discord("@everyone\n\n" + "\n\n".join(_urgent_parts), webhook=DISCORD_URGENT_WEBHOOK)
+                if _normal_parts:
+                    _notify_discord("@everyone\n\n" + "\n\n".join(_normal_parts), webhook=DISCORD_WEBHOOK)
 
                 if not any_slots_found:
                     print(f"[POLL] No slots found. Next scan in {POLL_INTERVAL}s...")
@@ -1134,7 +1137,6 @@ def run():
                 print(f"[POLL] No slots. Next scan in {POLL_INTERVAL}s...")
                 time.sleep(POLL_INTERVAL)
 
-            print(f"[SESSION] Token nearing expiry — refreshing session...")
 
         except RateLimitError as e:
             print(f"[429] {e} — switching proxy and retrying in 5s...")
