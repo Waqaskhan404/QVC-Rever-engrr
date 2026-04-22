@@ -65,7 +65,7 @@ MONTHS_TO_CHECK   = ["April", "May"]
 URGENT_MEDICAL_DATE = ""
 
 # How many seconds to wait between polling cycles (when no slots found)
-POLL_INTERVAL     = 3
+POLL_INTERVAL     = 5
 
 # DRY_RUN = True → go through the full flow but skip the final save (for testing)
 DRY_RUN = False
