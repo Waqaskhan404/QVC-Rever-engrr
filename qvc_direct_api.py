@@ -80,7 +80,7 @@ ORIGIN    = "https://www.qatarvisacenter.com"
 
 DISCORD_WEBHOOK        = "https://discordapp.com/api/webhooks/1495888024561516777/Hdcv7CY-fE8zjtxo3eYupCVLYzapg_cIlY3lbF0YSLWWyor1TIq7hBWYMCn4RsF2TOGO"
 DISCORD_URGENT_WEBHOOK = "https://discord.com/api/webhooks/1496147361569833140/-LydSfbfDWM0KWlEjhePMABhEMzgTbp8i0wm_aiHPJ7565KdIMQMFKMZhgQMd7zZnK0Q"
-DISCORD_STATUS_WEBHOOK = "https://discord.com/api/webhooks/1496431421349302454/hGxi17liWF64k-Amp7QzxF9tJm1cWtBwoeV2S0pe49haa5sdf8wurqlYKrvEZ9r6BJA6"
+DISCORD_SERVER_WEBHOOK = "https://discord.com/api/webhooks/1496431421349302454/hGxi17liWF64k-Amp7QzxF9tJm1cWtBwoeV2S0pe49haa5sdf8wurqlYKrvEZ9r6BJA6"
 
 VSC_MAP = {
     "Islamabad": {"vscId": 4050, "vscName": "Islamabad", "vscCode": "IS"},
@@ -806,7 +806,7 @@ def run():
         f"\U0001f7e2 **QVC Bot Started**\n"
         f"\U0001f4cd Centers: **Islamabad, Karachi**\n"
         f"\U0001f4c5 Scanning: {', '.join(MONTHS_TO_CHECK)}",
-        webhook=DISCORD_STATUS_WEBHOOK,
+        webhook=DISCORD_SERVER_WEBHOOK,
     )
     _load_proxies()
 
@@ -1093,7 +1093,7 @@ def run():
                                 f"⚠️ **Captcha 2 Failed {cap2_attempt + 1} Times**\n"
                                 f"📅 Slot: {date_str}  ⏰ {start_time}\n"
                                 f"Waiting 10s then retrying...",
-                                webhook=DISCORD_STATUS_WEBHOOK,
+                                webhook=DISCORD_SERVER_WEBHOOK,
                             )
                             time.sleep(10)
 
@@ -1115,7 +1115,7 @@ def run():
                         print(f"[SAVE] Error: {e}")
                         _notify_discord(
                             f"❌ **Save API Error**\n`{e}`\n📅 {date_str}  ⏰ {booking_time}",
-                            webhook=DISCORD_STATUS_WEBHOOK,
+                            webhook=DISCORD_SERVER_WEBHOOK,
                         )
                         continue
 
@@ -1127,14 +1127,14 @@ def run():
                         print("[SAVE] E016 captcha wrong — retrying next slot")
                         _notify_discord(
                             f"⚠️ **Save Error E016** — Captcha wrong\n📅 {date_str}  ⏰ {booking_time}\nRetrying next slot...",
-                            webhook=DISCORD_STATUS_WEBHOOK,
+                            webhook=DISCORD_SERVER_WEBHOOK,
                         )
                         continue
                     if msg_code:
                         print(f"[SAVE] Server error: {msg_code}  status={status}")
                         _notify_discord(
                             f"❌ **Save Server Error**\nCode: `{msg_code}`  Status: `{status}`\n📅 {date_str}  ⏰ {booking_time}",
-                            webhook=DISCORD_STATUS_WEBHOOK,
+                            webhook=DISCORD_SERVER_WEBHOOK,
                         )
                         continue
 
@@ -1154,7 +1154,7 @@ def run():
                             f"🛂  Passport: {PASSPORT_NUMBER}"
                         )
                         _notify_discord(_success_msg)
-                        _notify_discord(_success_msg, webhook=DISCORD_STATUS_WEBHOOK)
+                        _notify_discord(_success_msg, webhook=DISCORD_SERVER_WEBHOOK)
                         _play_alert()
                         found = True
                         break
