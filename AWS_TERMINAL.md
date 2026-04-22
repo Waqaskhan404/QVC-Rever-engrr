@@ -92,8 +92,7 @@ kill <PID>
 
 # Step 2: Pull latest code
 cd /home/ubuntu/qvc
-
-
+git pull origin main
 
 # Step 3: Start new screen session
 screen -S qvc
@@ -164,6 +163,12 @@ find / -name "qvc_book_api.py" 2>/dev/null
 | Stop bot | `kill <PID>` |
 | Kill screen session | `screen -XS qvc quit` |
 | Count captchas | `ls /home/ubuntu/qvc/captcha_solver/real_captchas/ \| wc -l` |
+
+
+
+Terminal Pushing Proxies
+scp -i "C:\Users\waqas\Desktop\QVC_Production\qvt-boot-new.pem" "C:\Users\waqas\Desktop\QVC_Production\Webshare residential proxies.txt" ubuntu@13.232.8.193:/home/ubuntu/qvc/
+scp -i "C:\Users\waqas\Desktop\QVC_Production\qvt-boot-new.pem" "C:\Users\waqas\Desktop\QVC_Production\proxies.txt" ubuntu@13.232.8.193:/home/ubuntu/qvc/
 
 
 
