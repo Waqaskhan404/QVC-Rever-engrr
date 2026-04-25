@@ -64,7 +64,7 @@ QVC_CENTER        = "Islamabad"        # "Islamabad" or "Karachi"
 MONTHS_TO_CHECK   = ["April", "May"]
 
 # Only book a date STRICTLY BEFORE this YYYY-MM-DD date. Set to "" or None to book any date.
-URGENT_MEDICAL_DATE = "2026-05-05"
+URGENT_MEDICAL_DATE = "2026-05-06"
 
 # How many seconds to wait between polling cycles (when no slots found)
 POLL_INTERVAL     = 3
