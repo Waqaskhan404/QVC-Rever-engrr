@@ -52,7 +52,7 @@ except Exception:
 
 # ── CONFIG — edit these before running ───────────────────────────────────────
 
-PASSPORT_NUMBER   = "Cf6797681"
+PASSPORT_NUMBER   = "CF6797681"
 VISA_NUMBER       = "382026063699"
 MOBILE_NUMBER     = "00923045454166"
 EMAIL             = "waqas.khan.40004@gmail.com"
